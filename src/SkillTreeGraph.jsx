@@ -13,6 +13,12 @@ const SkillTreeGraph = () => {
   // Sphere radius
   const radius = 100;
 
+  // Refs for variables used in event handlers
+  const isDraggingRef = useRef(false);
+  const intersectedNodeRef = useRef(null);
+  const mouseRef = useRef(new THREE.Vector2());
+  const raycasterRef = useRef(new THREE.Raycaster());
+
   useEffect(() => {
     // Number of nodes
     const N = 10; // Increased number for demonstration
@@ -72,31 +78,6 @@ const SkillTreeGraph = () => {
     fgRef.current.cameraPosition({ x: 0, y: 0, z: radius * 3 });
   }, [graphData]);
 
-  // Node dragging handlers
-  const handleNodeDragStart = (node) => {
-    setDraggedNode(node);
-    console.log("dragging: ", node.id);
-  };
-
-  const handleNodeDrag = (node) => {
-    // Project the node back onto the sphere surface
-    const r = Math.sqrt(node.x ** 2 + node.y ** 2 + node.z ** 2);
-    const scale = radius / r;
-    node.x *= scale;
-    node.y *= scale;
-    node.z *= scale;
-  };
-
-  const handleNodeDragEnd = (node) => {
-    setDraggedNode(null);
-    console.log("dragging end for node: ", node.id);
-  };
-
-  // Background click handler
-  const handleBackgroundClick = () => {
-    setSelectedNodes(new Set());
-  };
-
   // Node appearance
   const nodeThreeObject = (node) => {
     const material = new THREE.MeshPhongMaterial({
@@ -106,6 +87,7 @@ const SkillTreeGraph = () => {
       new THREE.SphereGeometry(5, 16, 16),
       material
     );
+    sphere.__data = node; // Store reference to node data
     node.__threeObj = sphere;
     node.__material = material; // Store material for updates
     return sphere;
@@ -140,7 +122,132 @@ const SkillTreeGraph = () => {
       // Normal click: select only this node
       setSelectedNodes(new Set([node]));
     }
+
+    // Prevent event from propagating to the background and controls
+    event.preventDefault();
+    event.stopPropagation();
   };
+
+  // Background click handler
+  const handleBackgroundClick = () => {
+    setSelectedNodes(new Set());
+  };
+
+  // Custom node dragging logic using pointer events
+  useEffect(() => {
+    if (!fgRef.current) return;
+
+    const fg = fgRef.current;
+    const renderer = fg.renderer();
+    const camera = fg.camera();
+    const controls = fg.controls();
+    const raycaster = raycasterRef.current;
+    const mouse = mouseRef.current;
+
+    // Create an invisible sphere for raycasting
+    const sphereForRaycasting = new THREE.Mesh(
+      new THREE.SphereGeometry(radius, 32, 32),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+
+    const handlePointerDown = (event) => {
+      // Get mouse position
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      // Raycast
+      raycaster.setFromCamera(mouse, camera);
+
+      // Get nodes
+      const nodeObjects = graphData.nodes
+        .map((node) => node.__threeObj)
+        .filter(Boolean);
+
+      const intersects = raycaster.intersectObjects(nodeObjects, true);
+
+      if (intersects.length > 0) {
+        // Node clicked
+        const intersectedNode = intersects[0].object.__data;
+
+        isDraggingRef.current = true;
+        controls.enabled = false; // Disable controls to prevent scene rotation
+        intersectedNodeRef.current = intersectedNode;
+        setDraggedNode(intersectedNode);
+
+        // Log node drag start
+        console.log('Node drag start:', intersectedNode);
+
+        // Prevent default behavior
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    const handlePointerMove = (event) => {
+      if (!isDraggingRef.current) return;
+
+      const intersectedNode = intersectedNodeRef.current;
+      if (!intersectedNode) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+
+      // Intersect with sphere surface
+      const intersects = raycaster.intersectObject(sphereForRaycasting);
+
+      if (intersects.length > 0) {
+        const point = intersects[0].point;
+
+        // Update node position
+        intersectedNode.x = point.x;
+        intersectedNode.y = point.y;
+        intersectedNode.z = point.z;
+
+        // Log node dragging
+        console.log('Node dragging:', intersectedNode);
+
+        fgRef.current.refresh();
+      }
+
+      // Prevent default behavior
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    const handlePointerUp = (event) => {
+      if (isDraggingRef.current) {
+        const intersectedNode = intersectedNodeRef.current;
+
+        isDraggingRef.current = false;
+        controls.enabled = true; // Re-enable controls
+        intersectedNodeRef.current = null;
+        setDraggedNode(null);
+
+        // Log node drag end
+        console.log('Node drag end:', intersectedNode);
+
+        // Prevent default behavior
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    // Add event listeners
+    renderer.domElement.addEventListener('pointerdown', handlePointerDown);
+    renderer.domElement.addEventListener('pointermove', handlePointerMove);
+    renderer.domElement.addEventListener('pointerup', handlePointerUp);
+
+    // Clean up
+    return () => {
+      renderer.domElement.removeEventListener('pointerdown', handlePointerDown);
+      renderer.domElement.removeEventListener('pointermove', handlePointerMove);
+      renderer.domElement.removeEventListener('pointerup', handlePointerUp);
+    };
+  }, [graphData.nodes]);
 
   return (
     <div>
@@ -148,16 +255,13 @@ const SkillTreeGraph = () => {
       <ForceGraph3D
         ref={fgRef}
         graphData={graphData}
-        enableNodeDrag={true} // Enable built-in node dragging
+        enableNodeDrag={false} // Disable built-in node dragging
         nodeAutoColorBy={null}
         linkDirectionalParticles={0}
         linkCurvature={0}
         enablePointerInteraction={true}
         onNodeClick={handleNodeClick}
         onBackgroundClick={handleBackgroundClick}
-        onNodeDragStart={handleNodeDragStart}
-        onNodeDrag={handleNodeDrag}
-        onNodeDragEnd={handleNodeDragEnd}
         linkColor={() => 'rgba(255,255,255,0.5)'}
         nodeThreeObject={nodeThreeObject}
       />
