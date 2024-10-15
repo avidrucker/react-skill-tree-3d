@@ -3,6 +3,7 @@
 import { useRef, useEffect, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
+import eyeIcon from './assets/eye.png'; // Import the icon
 
 const SkillTreeGraph = () => {
   const fgRef = useRef();
@@ -12,12 +13,17 @@ const SkillTreeGraph = () => {
 
   // Sphere radius
   const radius = 100;
+  const radius2 = 105;
 
   // Refs for variables used in event handlers
   const isDraggingRef = useRef(false);
   const intersectedNodeRef = useRef(null);
   const mouseRef = useRef(new THREE.Vector2());
   const raycasterRef = useRef(new THREE.Raycaster());
+
+  // Load the icon texture
+  const textureLoader = new THREE.TextureLoader();
+  const iconTexture = textureLoader.load(eyeIcon);
 
   useEffect(() => {
     // Number of nodes
@@ -30,9 +36,9 @@ const SkillTreeGraph = () => {
       const theta = Math.sqrt(N * Math.PI) * phi; // longitude angle
 
       // Convert spherical coordinates to Cartesian coordinates
-      const x = radius * Math.cos(theta) * Math.sin(phi);
-      const y = radius * Math.sin(theta) * Math.sin(phi);
-      const z = radius * Math.cos(phi);
+      const x = radius2 * Math.cos(theta) * Math.sin(phi);
+      const y = radius2 * Math.sin(theta) * Math.sin(phi);
+      const z = radius2 * Math.cos(phi);
 
       return {
         id: i,
@@ -78,32 +84,78 @@ const SkillTreeGraph = () => {
     fgRef.current.cameraPosition({ x: 0, y: 0, z: radius * 3 });
   }, [graphData]);
 
-  // Node appearance
-  const nodeThreeObject = (node) => {
-    const material = new THREE.MeshPhongMaterial({
-      color: selectedNodes.has(node) ? 'yellow' : 'white',
-    });
-    const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(5, 16, 16),
-      material
-    );
-    sphere.__data = node; // Store reference to node data
-    node.__threeObj = sphere;
-    node.__material = material; // Store material for updates
-    return sphere;
+  // Function to calculate great circle points
+  const getGreatCirclePoints = (start, end, numPoints = 100) => {
+    const startVec = new THREE.Vector3(start.x, start.y, start.z).normalize();
+    const endVec = new THREE.Vector3(end.x, end.y, end.z).normalize();
+
+    const angle = startVec.angleTo(endVec);
+    const axis = new THREE.Vector3().crossVectors(startVec, endVec).normalize();
+
+    const points = [];
+    for (let i = 0; i <= numPoints; i++) {
+      const t = i / numPoints;
+      const quat = new THREE.Quaternion().setFromAxisAngle(axis, angle * t);
+      const point = startVec.clone().applyQuaternion(quat).multiplyScalar(radius2);
+      points.push(point);
+    }
+    return points;
   };
 
-  // Update node colors when selectedNodes changes
-  useEffect(() => {
-    graphData.nodes.forEach((node) => {
-      if (node.__material) {
-        node.__material.color.set(selectedNodes.has(node) ? 'yellow' : 'white');
-      }
+  // Custom link object
+  const linkThreeObject = (link) => {
+    const start = link.source;
+    const end = link.target;
+
+    const points = getGreatCirclePoints(start, end);
+    const curve = new THREE.CatmullRomCurve3(points);
+
+    const geometry = new THREE.TubeGeometry(curve, 64, 0.5, 8, false);
+    const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    const tube = new THREE.Mesh(geometry, material);
+    return tube;
+  };
+
+  // Node appearance
+  const nodeThreeObject = (node) => {
+    // Create a plane geometry for the icon
+    const iconSize = 10;
+    const geometry = new THREE.PlaneGeometry(iconSize, iconSize);
+    const material = new THREE.MeshBasicMaterial({
+      map: iconTexture,
+      transparent: true,
     });
-    if (fgRef.current) {
-      fgRef.current.refresh();
+
+    const plane = new THREE.Mesh(geometry, material);
+    plane.__data = node; // Store reference to node data
+    node.__threeObj = plane;
+
+    // If the node is selected, add an outline
+    if (selectedNodes.has(node)) {
+      const outlineGeometry = new THREE.RingGeometry(
+        iconSize / 2 + 1,
+        iconSize / 2 + 3,
+        32
+      );
+      const outlineMaterial = new THREE.MeshBasicMaterial({
+        color: 'yellow',
+        side: THREE.DoubleSide,
+      });
+      const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+      outline.rotation.x = Math.PI / 2; // Adjust rotation to face camera
+
+      plane.add(outline);
     }
-  }, [selectedNodes, graphData.nodes]);
+
+    return plane;
+  };
+
+  // Update node objects when selectedNodes changes
+  useEffect(() => {
+    // Refresh all nodes to update the selection outline
+    fgRef.current.refresh();
+  }, [selectedNodes]);
 
   // Handle node clicks for selection
   const handleNodeClick = (node, event) => {
@@ -121,6 +173,7 @@ const SkillTreeGraph = () => {
     } else {
       // Normal click: select only this node
       setSelectedNodes(new Set([node]));
+      console.log("normal node click detected on node: ", node.id)
     }
 
     // Prevent event from propagating to the background and controls
@@ -146,7 +199,7 @@ const SkillTreeGraph = () => {
 
     // Create an invisible sphere for raycasting
     const sphereForRaycasting = new THREE.Mesh(
-      new THREE.SphereGeometry(radius, 32, 32),
+      new THREE.SphereGeometry(radius2, 32, 32),
       new THREE.MeshBasicMaterial({ visible: false })
     );
 
@@ -176,7 +229,7 @@ const SkillTreeGraph = () => {
         setDraggedNode(intersectedNode);
 
         // Log node drag start
-        console.log('Node drag start:', intersectedNode);
+        console.log('Node drag start: ', intersectedNode.id);
 
         // Prevent default behavior
         event.preventDefault();
@@ -208,7 +261,7 @@ const SkillTreeGraph = () => {
         intersectedNode.z = point.z;
 
         // Log node dragging
-        console.log('Node dragging:', intersectedNode);
+        // console.log('Node dragging:', intersectedNode);
 
         fgRef.current.refresh();
       }
@@ -228,7 +281,7 @@ const SkillTreeGraph = () => {
         setDraggedNode(null);
 
         // Log node drag end
-        console.log('Node drag end:', intersectedNode);
+        // console.log('Node drag end:', intersectedNode);
 
         // Prevent default behavior
         event.preventDefault();
@@ -264,6 +317,8 @@ const SkillTreeGraph = () => {
         onBackgroundClick={handleBackgroundClick}
         linkColor={() => 'rgba(255,255,255,0.5)'}
         nodeThreeObject={nodeThreeObject}
+        linkThreeObject={linkThreeObject} // Add custom link object
+        linkPositionUpdate={() => {}} // Prevent force-graph from updating link positions
       />
 
       {/* UI Elements to display state */}
