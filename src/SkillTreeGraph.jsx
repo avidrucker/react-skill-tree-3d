@@ -61,16 +61,22 @@ const SkillTreeGraph = () => {
 
   const justAddedNode = useRef(false);
 
+  // Modify the addNode function
   const addNode = () => {
-    // Place the new node in the center of the sphere
-    const phi = 0; // latitude angle
-    const theta = 0; // longitude angle
-  
-    // Convert spherical coordinates to Cartesian coordinates
-    const x = radius2 * Math.sin(phi) * Math.cos(theta);
-    const y = radius2 * Math.sin(phi) * Math.sin(theta);
-    const z = radius2 * Math.cos(phi);
-  
+    if (!fgRef.current) return;
+
+    const camera = fgRef.current.camera();
+
+    // Get the camera's viewing direction
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction);
+    direction.normalize();
+
+    // Calculate the point on the sphere's surface
+    const x = -direction.x * radius2;
+    const y = -direction.y * radius2;
+    const z = -direction.z * radius2;
+
     const newNode = {
       id: nodeIdRef.current++,
       x,
