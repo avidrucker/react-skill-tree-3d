@@ -1,6 +1,6 @@
 // src/SkillTreeGraph.js
 
-import { useRef, useEffect, useState } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 
@@ -18,7 +18,6 @@ const SkillTreeGraph = () => {
   const intersectedNodeRef = useRef(null);
   const mouseRef = useRef(new THREE.Vector2());
   const raycasterRef = useRef(new THREE.Raycaster());
-  const isNodeClickedRef = useRef(false);
 
   useEffect(() => {
     // Number of nodes
@@ -79,6 +78,18 @@ const SkillTreeGraph = () => {
     fgRef.current.cameraPosition({ x: 0, y: 0, z: radius * 3 });
   }, [graphData]);
 
+  // Update node colors when selectedNodes changes
+  useEffect(() => {
+    graphData.nodes.forEach((node) => {
+      if (node.__material) {
+        node.__material.color.set(selectedNodes.has(node) ? 'yellow' : 'white');
+      }
+    });
+    if (fgRef.current) {
+      fgRef.current.refresh();
+    }
+  }, [selectedNodes, graphData.nodes]);
+
   // Event handler functions
   const onMouseMove = (event) => {
     if (!isDraggingRef.current) return;
@@ -118,6 +129,10 @@ const SkillTreeGraph = () => {
       // Update the graph
       fg.refresh();
     }
+
+    // Prevent default behavior and stop propagation
+    event.preventDefault();
+    event.stopPropagation();
   };
 
   const onMouseDown = (event) => {
@@ -150,7 +165,6 @@ const SkillTreeGraph = () => {
 
     if (intersects.length > 0) {
       // Node clicked
-      isNodeClickedRef.current = true;
 
       // Start dragging
       isDraggingRef.current = true;
@@ -160,10 +174,9 @@ const SkillTreeGraph = () => {
 
       // Prevent default behavior
       event.preventDefault();
+      event.stopPropagation();
     } else {
       // Background clicked
-      isNodeClickedRef.current = false;
-      // Allow orbit controls
       controls.enabled = true;
     }
   };
@@ -183,12 +196,8 @@ const SkillTreeGraph = () => {
   };
 
   const onCanvasClick = (event) => {
-    if (!isNodeClickedRef.current) {
-      // Clicked on background, deselect all nodes
-      setSelectedNodes(new Set());
-    }
-    // Reset isNodeClickedRef
-    isNodeClickedRef.current = false;
+    // Background clicked, deselect all nodes
+    setSelectedNodes(new Set());
   };
 
   // Add event listeners
@@ -213,7 +222,9 @@ const SkillTreeGraph = () => {
 
   // Node appearance
   const nodeThreeObject = (node) => {
-    const material = new THREE.MeshPhongMaterial({ color: 0xffffff });
+    const material = new THREE.MeshPhongMaterial({
+      color: selectedNodes.has(node) ? 'yellow' : 'white',
+    });
     const sphere = new THREE.Mesh(
       new THREE.SphereGeometry(5, 16, 16),
       material
@@ -221,13 +232,12 @@ const SkillTreeGraph = () => {
     // Store reference to node data
     sphere.userData.node = node;
     node.__threeObj = sphere; // Store reference back in node data
+    node.__material = material; // Store material for updates
     return sphere;
   };
 
   // Handle node clicks for selection
   const handleNodeClick = (node, event) => {
-    isNodeClickedRef.current = true;
-
     if (event.shiftKey) {
       // Shift-click: toggle selection of the node
       setSelectedNodes((prev) => {
@@ -243,12 +253,9 @@ const SkillTreeGraph = () => {
       // Normal click: select only this node
       setSelectedNodes(new Set([node]));
     }
-  };
 
-  // Set node color based on selection state
-  const getNodeColor = (node) => {
-    if (selectedNodes.has(node)) return 'yellow';
-    return 'white';
+    // Prevent click event from propagating to the canvas
+    event.stopPropagation();
   };
 
   return (
@@ -263,7 +270,6 @@ const SkillTreeGraph = () => {
         linkCurvature={0}
         enablePointerInteraction={true}
         onNodeClick={handleNodeClick}
-        nodeColor={getNodeColor}
         linkColor={() => 'rgba(255,255,255,0.5)'}
         nodeThreeObject={nodeThreeObject} // Pass nodeThreeObject as a prop
       />
