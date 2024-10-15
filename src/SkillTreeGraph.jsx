@@ -1,20 +1,39 @@
 // src/SkillTreeGraph.js
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import eyeIcon from './assets/eye.png'; // Import the icon
+
+// Load the icon texture
+const textureLoader = new THREE.TextureLoader();
+const iconTexture = textureLoader.load(eyeIcon);
+
+// Reusable geometries and materials
+const iconSize = 10;
+const planeGeometry = new THREE.PlaneGeometry(iconSize, iconSize);
+const planeMaterial = new THREE.MeshBasicMaterial({
+  map: iconTexture,
+  transparent: true,
+  side: THREE.DoubleSide,
+});
+
+const outlineGeometry = new THREE.RingGeometry(4.9, 5.1, 32);
+const outlineMaterial = new THREE.MeshBasicMaterial({
+  color: 'yellow',
+  side: THREE.DoubleSide,
+});
+
+// Reusable link material
+const linkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+const getLinkColor = () => 'rgba(255,255,255,0.5)';
 
 const SkillTreeGraph = () => {
   const fgRef = useRef();
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [draggedNode, setDraggedNode] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
-  const [cameraState, setCameraState] = useState({
-    position: { x: 0, y: 0, z: 0 },
-    rotation: { x: 0, y: 0, z: 0 },
-    zoom: 1,
-  });
 
   // Sphere radius
   const radius = 100;
@@ -26,10 +45,6 @@ const SkillTreeGraph = () => {
   const initialPointerPosRef = useRef({ x: 0, y: 0 });
   const mouseRef = useRef(new THREE.Vector2());
   const raycasterRef = useRef(new THREE.Raycaster());
-
-  // Load the icon texture
-  const textureLoader = new THREE.TextureLoader();
-  const iconTexture = textureLoader.load(eyeIcon);
 
   // Store initial camera position
   const initialCameraPositionRef = useRef(null);
@@ -99,33 +114,6 @@ const SkillTreeGraph = () => {
       initialCameraPositionRef.current = { ...initialPosition };
     }
 
-    // Add controls change listener to update camera state
-    const controls = fgRef.current.controls();
-
-    const handleControlChange = () => {
-      const camera = fgRef.current.camera();
-      setCameraState({
-        position: {
-          x: camera.position.x.toFixed(2),
-          y: camera.position.y.toFixed(2),
-          z: camera.position.z.toFixed(2),
-        },
-        rotation: {
-          x: camera.rotation.x.toFixed(2),
-          y: camera.rotation.y.toFixed(2),
-          z: camera.rotation.z.toFixed(2),
-        },
-        zoom: camera.zoom.toFixed(2),
-      });
-      handleRenderFrame(); ////
-    };
-
-    controls.addEventListener('change', handleControlChange);
-
-    // Clean up the event listener when the component unmounts
-    return () => {
-      controls.removeEventListener('change', handleControlChange);
-    };
   }, [graphData]);
 
   // Function to calculate great circle points
@@ -154,10 +142,9 @@ const SkillTreeGraph = () => {
     const points = getGreatCirclePoints(start, end);
     const curve = new THREE.CatmullRomCurve3(points);
 
-    const geometry = new THREE.TubeGeometry(curve, 64, 0.5, 8, false);
-    const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const geometry = new THREE.TubeGeometry(curve, 32, 0.5, 8, false);
 
-    const tube = new THREE.Mesh(geometry, material);
+    const tube = new THREE.Mesh(geometry, linkMaterial);
     tube.renderOrder = 0; // Render links after sphere, before nodes
     return tube;
   };
@@ -167,37 +154,18 @@ const SkillTreeGraph = () => {
     // Create a group to hold the plane and the outline
     const group = new THREE.Group();
 
-    // Create a plane geometry for the icon
-    const iconSize = 10;
-    const geometry = new THREE.PlaneGeometry(iconSize, iconSize);
-    const material = new THREE.MeshBasicMaterial({
-      map: iconTexture,
-      transparent: true,
-      side: THREE.DoubleSide, // Ensure both sides are rendered
-    });
-
-    const plane = new THREE.Mesh(geometry, material);
+    const plane = new THREE.Mesh(planeGeometry, planeMaterial);
     plane.__data = node; // Store reference to node data
 
     group.add(plane);
     node.__threeObj = group; // Store the group as the node's object
 
     // If the node is selected, add an outline
-    if (selectedNodes.has(node)) {
-      const outlineGeometry = new THREE.RingGeometry(
-        4.9,
-        5.1,
-        32
-      );
-      const outlineMaterial = new THREE.MeshBasicMaterial({
-        color: 'yellow',
-        side: THREE.DoubleSide,
-      });
-      const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-
-      group.add(outline);
-      node.__outline = outline; // Store outline for later access
-    }
+  if (selectedNodes.has(node)) {
+    const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+    group.add(outline);
+    node.__outline = outline;
+  }
 
     // Compute the initial orientation
     const nodePosition = new THREE.Vector3(node.x, node.y, node.z).normalize();
@@ -212,39 +180,41 @@ const SkillTreeGraph = () => {
     return group;
   };
 
+  const memoizedNodeThreeObject = useCallback(
+    (node) => nodeThreeObject(node),
+    [selectedNodes]
+  );
+  
+  const memoizedLinkThreeObject = useCallback(
+    (link) => linkThreeObject(link),
+    []
+  );
+
   // Update node objects when selectedNodes changes
   useEffect(() => {
     // Update selection outlines
     graphData.nodes.forEach((node) => {
       if (node.__threeObj) {
         const group = node.__threeObj;
+  
         // Remove existing outline if any
         if (node.__outline) {
           group.remove(node.__outline);
+          node.__outline.geometry.dispose();
+          node.__outline.material.dispose();
           node.__outline = null;
         }
-
+  
         // If the node is selected, add an outline
         if (selectedNodes.has(node)) {
-          const outlineGeometry = new THREE.RingGeometry(
-            4.9,
-            5.1,
-            32
-          );
-          const outlineMaterial = new THREE.MeshBasicMaterial({
-            color: 'yellow',
-            side: THREE.DoubleSide,
-          });
           const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-
-          node.__threeObj.add(outline);
+          group.add(outline);
           node.__outline = outline;
         }
       }
     });
-
-    fgRef.current.refresh();
-  }, [selectedNodes, graphData.nodes]);
+  }, [selectedNodes]);
+  
 
   // Custom node dragging and click logic using pointer events
   useEffect(() => {
@@ -259,7 +229,7 @@ const SkillTreeGraph = () => {
 
     // Create an invisible sphere for raycasting
     const sphereForRaycasting = new THREE.Mesh(
-      new THREE.SphereGeometry(radius2, 32, 32),
+      new THREE.SphereGeometry(radius2, 128, 128),
       new THREE.MeshBasicMaterial({ visible: false })
     );
 
@@ -328,13 +298,15 @@ const SkillTreeGraph = () => {
 
           if (intersects.length > 0) {
             const point = intersects[0].point;
-
+          
             // Update node position
             intersectedNode.x = point.x;
             intersectedNode.y = point.y;
             intersectedNode.z = point.z;
-
-            fgRef.current.refresh();
+          
+            // Mark the node's object for update
+            intersectedNode.__threeObj.position.set(point.x, point.y, point.z);
+            handleRenderFrame();
           }
 
           // Prevent default behavior
@@ -428,6 +400,7 @@ const SkillTreeGraph = () => {
   // Function to reset camera position
   const resetCameraPosition = () => {
     if (fgRef.current && initialCameraPositionRef.current) {
+      console.log("camera position is: ", initialCameraPositionRef.current);
       fgRef.current.cameraPosition(
         initialCameraPositionRef.current,
         null,
@@ -445,15 +418,12 @@ const SkillTreeGraph = () => {
         enableNodeDrag={false} // Disable built-in node dragging
         nodeAutoColorBy={null}
         linkDirectionalParticles={0}
-        nodeBillboard={false}
         linkCurvature={0}
         enablePointerInteraction={true}
-        // Removed onNodeClick and onBackgroundClick handlers
         linkColor={() => 'rgba(255,255,255,0.5)'}
-        nodeThreeObject={nodeThreeObject}
-        linkThreeObject={linkThreeObject} // Add custom link object
-        linkPositionUpdate={() => {}} // Prevent force-graph from updating link positions
-        onRenderFramePost={handleRenderFrame}
+        nodeThreeObject={memoizedNodeThreeObject}
+        linkThreeObject={memoizedLinkThreeObject} // Add custom link object
+        linkPositionUpdate={getLinkColor} // Prevent force-graph from updating link positions
       />
 
       {/* UI Elements to display state */}
@@ -469,7 +439,7 @@ const SkillTreeGraph = () => {
             'None'}
         </p>
         <button onClick={resetCameraPosition}>Reset Camera</button>
-        <h3 className="ma0">Camera State</h3>
+        {/* <h3 className="ma0">Camera State</h3>
         <p className="ma0">
           <strong>Position:</strong> X: {cameraState.position.x}, Y:{' '}
           {cameraState.position.y}, Z: {cameraState.position.z}
@@ -480,7 +450,7 @@ const SkillTreeGraph = () => {
         </p>
         <p className="ma0">
           <strong>Zoom:</strong> {cameraState.zoom}
-        </p>
+        </p> */}
       </div>
     </div>
   );
