@@ -117,7 +117,7 @@ const SkillTreeGraph = () => {
         },
         zoom: camera.zoom.toFixed(2),
       });
-      handleRenderFrame();
+      handleRenderFrame(); ////
     };
 
     controls.addEventListener('change', handleControlChange);
@@ -198,6 +198,14 @@ const SkillTreeGraph = () => {
       group.add(outline);
       node.__outline = outline; // Store outline for later access
     }
+
+    // Compute the initial orientation
+    const nodePosition = new THREE.Vector3(node.x, node.y, node.z).normalize();
+    const quaternion = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 0, 1),
+      nodePosition
+    );
+    group.setRotationFromQuaternion(quaternion);
 
     group.renderOrder = 1; // Render nodes after sphere and links
 
