@@ -334,18 +334,8 @@ const SkillTreeGraph = () => {
       />
 
       {/* UI Elements to display state */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 10,
-          right: 10,
-          backgroundColor: 'rgba(255,255,255,0.1)',
-          padding: '10px',
-          borderRadius: '5px',
-          maxWidth: '250px',
-        }}
-      >
-        <h3>State Information</h3>
+      <div className="absolute top-0 right-0 bg-white-10 pa2 br3">
+        <h3 className="ma0">State Information</h3>
         <p>
           <strong>Dragged Node:</strong>{' '}
           {draggedNode ? `Node ${draggedNode.id}` : 'None'}
