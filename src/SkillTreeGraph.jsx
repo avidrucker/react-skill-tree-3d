@@ -185,8 +185,8 @@ const SkillTreeGraph = () => {
     // If the node is selected, add an outline
     if (selectedNodes.has(node)) {
       const outlineGeometry = new THREE.RingGeometry(
-        iconSize / 2 + 1,
-        iconSize / 2 + 3,
+        4.9,
+        5.1,
         32
       );
       const outlineMaterial = new THREE.MeshBasicMaterial({
@@ -226,10 +226,9 @@ const SkillTreeGraph = () => {
 
         // If the node is selected, add an outline
         if (selectedNodes.has(node)) {
-          const iconSize = 10; // Should be the same as in nodeThreeObject
           const outlineGeometry = new THREE.RingGeometry(
-            iconSize / 2 + 1,
-            iconSize / 2 + 3,
+            4.9,
+            5.1,
             32
           );
           const outlineMaterial = new THREE.MeshBasicMaterial({
