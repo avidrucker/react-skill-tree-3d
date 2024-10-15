@@ -8,6 +8,7 @@ const SkillTreeGraph = () => {
   const fgRef = useRef();
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [draggedNode, setDraggedNode] = useState(null);
+  const [selectedNodes, setSelectedNodes] = useState(new Set());
 
   // Sphere radius
   const radius = 100;
@@ -17,10 +18,11 @@ const SkillTreeGraph = () => {
   const intersectedNodeRef = useRef(null);
   const mouseRef = useRef(new THREE.Vector2());
   const raycasterRef = useRef(new THREE.Raycaster());
+  const isNodeClickedRef = useRef(false);
 
   useEffect(() => {
     // Number of nodes
-    const N = 3;
+    const N = 10; // Increased number for demonstration
 
     // Generate nodes positioned on the sphere's surface
     const nodes = [...Array(N).keys()].map((i) => {
@@ -42,10 +44,9 @@ const SkillTreeGraph = () => {
     });
 
     // Define links between nodes
-    const links = [
-      { source: 0, target: 1 },
-      { source: 1, target: 2 },
-    ];
+    const links = nodes.map((node) => {
+      return { source: node.id, target: (node.id + 1) % N };
+    });
 
     setGraphData({ nodes, links });
   }, []);
@@ -148,6 +149,9 @@ const SkillTreeGraph = () => {
     const intersects = raycaster.intersectObjects(nodeObjects, true);
 
     if (intersects.length > 0) {
+      // Node clicked
+      isNodeClickedRef.current = true;
+
       // Start dragging
       isDraggingRef.current = true;
       controls.enabled = false; // Disable orbit controls during dragging
@@ -156,6 +160,11 @@ const SkillTreeGraph = () => {
 
       // Prevent default behavior
       event.preventDefault();
+    } else {
+      // Background clicked
+      isNodeClickedRef.current = false;
+      // Allow orbit controls
+      controls.enabled = true;
     }
   };
 
@@ -173,6 +182,15 @@ const SkillTreeGraph = () => {
     }
   };
 
+  const onCanvasClick = (event) => {
+    if (!isNodeClickedRef.current) {
+      // Clicked on background, deselect all nodes
+      setSelectedNodes(new Set());
+    }
+    // Reset isNodeClickedRef
+    isNodeClickedRef.current = false;
+  };
+
   // Add event listeners
   useEffect(() => {
     if (!fgRef.current) return;
@@ -182,12 +200,14 @@ const SkillTreeGraph = () => {
     renderer.domElement.addEventListener('mousemove', onMouseMove);
     renderer.domElement.addEventListener('mousedown', onMouseDown);
     renderer.domElement.addEventListener('mouseup', onMouseUp);
+    renderer.domElement.addEventListener('click', onCanvasClick);
 
     // Clean up on unmount
     return () => {
       renderer.domElement.removeEventListener('mousemove', onMouseMove);
       renderer.domElement.removeEventListener('mousedown', onMouseDown);
       renderer.domElement.removeEventListener('mouseup', onMouseUp);
+      renderer.domElement.removeEventListener('click', onCanvasClick);
     };
   }, []);
 
@@ -206,8 +226,29 @@ const SkillTreeGraph = () => {
 
   // Handle node clicks for selection
   const handleNodeClick = (node, event) => {
-    // Selection logic can be implemented here
-    console.log('Node clicked:', node);
+    isNodeClickedRef.current = true;
+
+    if (event.shiftKey) {
+      // Shift-click: toggle selection of the node
+      setSelectedNodes((prev) => {
+        const newSelectedNodes = new Set(prev);
+        if (newSelectedNodes.has(node)) {
+          newSelectedNodes.delete(node);
+        } else {
+          newSelectedNodes.add(node);
+        }
+        return newSelectedNodes;
+      });
+    } else {
+      // Normal click: select only this node
+      setSelectedNodes(new Set([node]));
+    }
+  };
+
+  // Set node color based on selection state
+  const getNodeColor = (node) => {
+    if (selectedNodes.has(node)) return 'yellow';
+    return 'white';
   };
 
   return (
@@ -222,7 +263,7 @@ const SkillTreeGraph = () => {
         linkCurvature={0}
         enablePointerInteraction={true}
         onNodeClick={handleNodeClick}
-        nodeColor={() => 'white'}
+        nodeColor={getNodeColor}
         linkColor={() => 'rgba(255,255,255,0.5)'}
         nodeThreeObject={nodeThreeObject} // Pass nodeThreeObject as a prop
       />
@@ -236,13 +277,18 @@ const SkillTreeGraph = () => {
           backgroundColor: 'rgba(255,255,255,0.8)',
           padding: '10px',
           borderRadius: '5px',
-          maxWidth: '200px',
+          maxWidth: '250px',
         }}
       >
         <h3>State Information</h3>
         <p>
           <strong>Dragged Node:</strong>{' '}
           {draggedNode ? `Node ${draggedNode.id}` : 'None'}
+        </p>
+        <p>
+          <strong>Selected Nodes:</strong>{' '}
+          {[...selectedNodes].map((node) => `Node ${node.id}`).join(', ') ||
+            'None'}
         </p>
       </div>
     </div>
