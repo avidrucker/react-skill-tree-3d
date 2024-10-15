@@ -16,6 +16,7 @@ const planeMaterial = new THREE.MeshBasicMaterial({
   map: iconTexture,
   transparent: true,
   side: THREE.DoubleSide,
+  depthWrite: false
 });
 
 const outlineGeometry = new THREE.RingGeometry(4.9, 5.1, 32);
@@ -378,36 +379,65 @@ const SkillTreeGraph = () => {
   // Handle rendering frame to update node orientations
   const handleRenderFrame = () => {
     if (!fgRef.current) return;
-
-    // Update nodes to face away from the sphere's center
+  
+    const sphereUp = new THREE.Vector3(0, 1, 0); // Sphere's up direction
+  
     graphData.nodes.forEach((node) => {
       if (node.__threeObj) {
-        // Compute the vector from the sphere center to the node
+        // Node position vector normalized
         const nodePosition = new THREE.Vector3(node.x, node.y, node.z).normalize();
-
-        // Create a quaternion that rotates the node's positive Z-axis to align with the nodePosition vector
-        const quaternion = new THREE.Quaternion().setFromUnitVectors(
-          new THREE.Vector3(0, 0, 1), // The default orientation of the plane's normal (positive Z-axis)
-          nodePosition
-        );
-
-        // Apply the rotation to the node
-        node.__threeObj.setRotationFromQuaternion(quaternion);
+  
+        // Compute the right vector (perpendicular to nodePosition and sphereUp)
+        let right = new THREE.Vector3().crossVectors(sphereUp, nodePosition);
+        if (right.lengthSq() === 0) {
+          // nodePosition is parallel to sphereUp (north or south pole)
+          right = new THREE.Vector3(1, 0, 0).cross(nodePosition).normalize();
+        } else {
+          right.normalize();
+        }
+  
+        // Compute the adjusted up vector
+        const up = new THREE.Vector3().crossVectors(nodePosition, right).normalize();
+  
+        // Construct rotation matrix
+        const rotationMatrix = new THREE.Matrix4();
+        rotationMatrix.makeBasis(right, up, nodePosition);
+  
+        // Set the node's rotation from the rotation matrix
+        node.__threeObj.setRotationFromMatrix(rotationMatrix);
       }
     });
-  };
+  };  
 
   // Function to reset camera position
   const resetCameraPosition = () => {
     if (fgRef.current && initialCameraPositionRef.current) {
-      console.log("camera position is: ", initialCameraPositionRef.current);
-      fgRef.current.cameraPosition(
-        initialCameraPositionRef.current,
-        null,
-        3000 // ms transition duration
+      const camera = fgRef.current.camera();
+      const controls = fgRef.current.controls();
+  
+      // Reset camera position
+      camera.position.set(
+        initialCameraPositionRef.current.x,
+        initialCameraPositionRef.current.y,
+        initialCameraPositionRef.current.z
       );
+  
+      // Reset camera rotation
+      camera.quaternion.set(0, 0, 0, 1); // Identity quaternion
+      camera.rotation.set(0, 0, 0);
+  
+      // Reset camera up vector
+      camera.up.set(0, 1, 0);
+  
+      // Reset controls target
+      controls.target.set(0, 0, 0);
+  
+      // Update camera and controls
+      camera.updateProjectionMatrix();
+      controls.update();
     }
   };
+  
 
   return (
     <div className="w-100 h-100 overflow-none">
