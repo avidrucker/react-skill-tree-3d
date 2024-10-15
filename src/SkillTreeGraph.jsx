@@ -18,6 +18,7 @@ const SkillTreeGraph = () => {
   // Refs for variables used in event handlers
   const isDraggingRef = useRef(false);
   const intersectedNodeRef = useRef(null);
+  const initialPointerPosRef = useRef({ x: 0, y: 0 });
   const mouseRef = useRef(new THREE.Vector2());
   const raycasterRef = useRef(new THREE.Raycaster());
 
@@ -157,36 +158,7 @@ const SkillTreeGraph = () => {
     fgRef.current.refresh();
   }, [selectedNodes]);
 
-  // Handle node clicks for selection
-  const handleNodeClick = (node, event) => {
-    if (event.shiftKey) {
-      // Shift-click: toggle selection of the node
-      setSelectedNodes((prev) => {
-        const newSelectedNodes = new Set(prev);
-        if (newSelectedNodes.has(node)) {
-          newSelectedNodes.delete(node);
-        } else {
-          newSelectedNodes.add(node);
-        }
-        return newSelectedNodes;
-      });
-    } else {
-      // Normal click: select only this node
-      setSelectedNodes(new Set([node]));
-      console.log("normal node click detected on node: ", node.id)
-    }
-
-    // Prevent event from propagating to the background and controls
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
-  // Background click handler
-  const handleBackgroundClick = () => {
-    setSelectedNodes(new Set());
-  };
-
-  // Custom node dragging logic using pointer events
+  // Custom node dragging and click logic using pointer events
   useEffect(() => {
     if (!fgRef.current) return;
 
@@ -209,6 +181,10 @@ const SkillTreeGraph = () => {
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
+      // Store initial pointer position
+      initialPointerPosRef.current = { x: event.clientX, y: event.clientY };
+      isDraggingRef.current = false;
+
       // Raycast
       raycaster.setFromCamera(mouse, camera);
 
@@ -222,71 +198,108 @@ const SkillTreeGraph = () => {
       if (intersects.length > 0) {
         // Node clicked
         const intersectedNode = intersects[0].object.__data;
-
-        isDraggingRef.current = true;
-        controls.enabled = false; // Disable controls to prevent scene rotation
         intersectedNodeRef.current = intersectedNode;
-        setDraggedNode(intersectedNode);
 
-        // Log node drag start
-        console.log('Node drag start: ', intersectedNode.id);
+        // Disable controls to prevent scene rotation
+        controls.enabled = false;
 
         // Prevent default behavior
         event.preventDefault();
         event.stopPropagation();
+      } else {
+        // No node clicked
+        intersectedNodeRef.current = null;
+        controls.enabled = true; // Enable controls for scene rotation
       }
     };
 
     const handlePointerMove = (event) => {
-      if (!isDraggingRef.current) return;
-
       const intersectedNode = intersectedNodeRef.current;
-      if (!intersectedNode) return;
 
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      if (intersectedNode) {
+        const deltaX = event.clientX - initialPointerPosRef.current.x;
+        const deltaY = event.clientY - initialPointerPosRef.current.y;
+        const movement = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
 
-      raycaster.setFromCamera(mouse, camera);
+        if (!isDraggingRef.current && movement > 5) {
+          isDraggingRef.current = true;
+          setDraggedNode(intersectedNode);
+          // console.log('Node drag start: ', intersectedNode.id);
+        }
 
-      // Intersect with sphere surface
-      const intersects = raycaster.intersectObject(sphereForRaycasting);
+        if (isDraggingRef.current) {
+          // Get mouse position
+          const rect = renderer.domElement.getBoundingClientRect();
+          mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+          mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-      if (intersects.length > 0) {
-        const point = intersects[0].point;
+          raycaster.setFromCamera(mouse, camera);
 
-        // Update node position
-        intersectedNode.x = point.x;
-        intersectedNode.y = point.y;
-        intersectedNode.z = point.z;
+          // Intersect with sphere surface
+          const intersects = raycaster.intersectObject(sphereForRaycasting);
 
-        // Log node dragging
-        // console.log('Node dragging:', intersectedNode);
+          if (intersects.length > 0) {
+            const point = intersects[0].point;
 
-        fgRef.current.refresh();
+            // Update node position
+            intersectedNode.x = point.x;
+            intersectedNode.y = point.y;
+            intersectedNode.z = point.z;
+
+            fgRef.current.refresh();
+          }
+
+          // Prevent default behavior
+          event.preventDefault();
+          event.stopPropagation();
+        }
       }
+    };
+
+    const handlePointerUp = (event) => {
+      const intersectedNode = intersectedNodeRef.current;
+
+      if (isDraggingRef.current) {
+        // Dragging was happening
+        isDraggingRef.current = false;
+        setDraggedNode(null);
+
+        // Log node drag end
+        // console.log('Node drag end:', intersectedNode.id);
+      } else if (intersectedNode) {
+        // No dragging occurred; handle click on node
+        const node = intersectedNode;
+        // Handle node selection logic here
+        if (event.shiftKey) {
+          // Shift-click: toggle selection of the node
+          setSelectedNodes((prev) => {
+            const newSelectedNodes = new Set(prev);
+            if (newSelectedNodes.has(node)) {
+              newSelectedNodes.delete(node);
+            } else {
+              newSelectedNodes.add(node);
+            }
+            return newSelectedNodes;
+          });
+        } else {
+          // Normal click: select only this node
+          setSelectedNodes(new Set([node]));
+          // console.log('Node clicked:', node.id);
+        }
+      } else {
+        // Clicked on background, deselect all nodes
+        setSelectedNodes(new Set());
+      }
+
+      // Reset intersectedNodeRef.current
+      intersectedNodeRef.current = null;
+
+      // Re-enable controls if not dragging
+      controls.enabled = true;
 
       // Prevent default behavior
       event.preventDefault();
       event.stopPropagation();
-    };
-
-    const handlePointerUp = (event) => {
-      if (isDraggingRef.current) {
-        const intersectedNode = intersectedNodeRef.current;
-
-        isDraggingRef.current = false;
-        controls.enabled = true; // Re-enable controls
-        intersectedNodeRef.current = null;
-        setDraggedNode(null);
-
-        // Log node drag end
-        // console.log('Node drag end:', intersectedNode);
-
-        // Prevent default behavior
-        event.preventDefault();
-        event.stopPropagation();
-      }
     };
 
     // Add event listeners
@@ -313,8 +326,7 @@ const SkillTreeGraph = () => {
         linkDirectionalParticles={0}
         linkCurvature={0}
         enablePointerInteraction={true}
-        onNodeClick={handleNodeClick}
-        onBackgroundClick={handleBackgroundClick}
+        // Removed onNodeClick and onBackgroundClick handlers
         linkColor={() => 'rgba(255,255,255,0.5)'}
         nodeThreeObject={nodeThreeObject}
         linkThreeObject={linkThreeObject} // Add custom link object
@@ -327,7 +339,7 @@ const SkillTreeGraph = () => {
           position: 'absolute',
           top: 10,
           right: 10,
-          backgroundColor: 'rgba(255,255,255,0.8)',
+          backgroundColor: 'rgba(255,255,255,0.1)',
           padding: '10px',
           borderRadius: '5px',
           maxWidth: '250px',
