@@ -43,6 +43,17 @@ const SkillTreeGraph = () => {
     console.log("container dimensions: ", dimensions);
   };
 
+  // logging function that prints out all the nodes and edges
+  const logGraphData = () => {
+    console.log("nodes: ", graphData.nodes);
+    console.log("edges: ", graphData.links);
+  };
+
+  const logManyThings = () => {
+    logDimensions();
+    logGraphData();
+  }
+
   // Sphere radius
   const radius = 100;
   const radius2 = 105;
@@ -77,8 +88,14 @@ const SkillTreeGraph = () => {
     const y = -direction.y * radius2;
     const z = -direction.z * radius2;
 
+    // get next available ID
+    let i = 0;
+    while(graphData.nodes.find((node) => node.id === i)) {
+      i++;
+    }
+
     const newNode = {
-      id: nodeIdRef.current++,
+      id: i,
       x,
       y,
       z,
@@ -94,12 +111,16 @@ const SkillTreeGraph = () => {
   const deleteSelectedNodes = () => {
     if (selectedNodes.size === 0) return;
   
+    justAddedNode.current = true;
     setGraphData((prevData) => {
       const nodesToDelete = new Set([...selectedNodes].map((node) => node.id));
       const newNodes = prevData.nodes.filter((node) => !nodesToDelete.has(node.id));
       const newLinks = prevData.links.filter(
         (link) => !nodesToDelete.has(link.source) && !nodesToDelete.has(link.target)
       );
+      // console.log("old nodes: ", prevData.nodes);
+      // console.log('Deleted nodes:', nodesToDelete);
+      // console.log("resulting remaining nodes: ", newNodes);
       return { nodes: newNodes, links: newLinks };
     });
   
@@ -594,7 +615,7 @@ const SkillTreeGraph = () => {
       />
 
       {/* UI Elements to display state */}
-      <div className="absolute top-2 right-2 bg-white-10 pa2 br3">
+      <div className="absolute top-2 right-2 bg-white-10 pa2 br3 w5">
         <h3 className="ma0">State Information</h3>
         <p className="ma0">
           <strong>Dragged Node:</strong>{' '}
@@ -605,21 +626,11 @@ const SkillTreeGraph = () => {
           {[...selectedNodes].map((node) => `Node ${node.id}`).join(', ') ||
             'None'}
         </p>
-        <button onClick={addNode}>Add Node</button>
-        <button onClick={resetCameraPosition}>Reset Camera</button>
-        <button onClick={logDimensions}>Log</button>
-        {/* <h3 className="ma0">Camera State</h3>
-        <p className="ma0">
-          <strong>Position:</strong> X: {cameraState.position.x}, Y:{' '}
-          {cameraState.position.y}, Z: {cameraState.position.z}
-        </p>
-        <p className="ma0">
-          <strong>Rotation:</strong> X: {cameraState.rotation.x}, Y:{' '}
-          {cameraState.rotation.y}, Z: {cameraState.rotation.z}
-        </p>
-        <p className="ma0">
-          <strong>Zoom:</strong> {cameraState.zoom}
-        </p> */}
+      <div className="">
+        <button className="dib" onClick={addNode}>Add Node</button>
+        <button className="dib" onClick={resetCameraPosition}>Reset Camera</button>
+        <button className="dib" onClick={logManyThings}>Log</button>
+        </div>
       </div>
     </div>
   );
