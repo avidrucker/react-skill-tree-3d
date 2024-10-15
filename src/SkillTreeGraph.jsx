@@ -1,17 +1,22 @@
 // src/SkillTreeGraph.js
 
-import React, { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 
 const SkillTreeGraph = () => {
   const fgRef = useRef();
-  const [activatedNodes, setActivatedNodes] = useState(new Set());
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [draggedNode, setDraggedNode] = useState(null);
 
   // Sphere radius
   const radius = 100;
+
+  // Refs for variables used in event handlers
+  const isDraggingRef = useRef(false);
+  const intersectedNodeRef = useRef(null);
+  const mouseRef = useRef(new THREE.Vector2());
+  const raycasterRef = useRef(new THREE.Raycaster());
 
   useEffect(() => {
     // Number of nodes
@@ -73,9 +78,120 @@ const SkillTreeGraph = () => {
     fgRef.current.cameraPosition({ x: 0, y: 0, z: radius * 3 });
   }, [graphData]);
 
-  // Custom node dragging logic (same as before)
+  // Event handler functions
+  const onMouseMove = (event) => {
+    if (!isDraggingRef.current) return;
 
-  // Node appearance (move nodeThreeObject to a prop)
+    const fg = fgRef.current;
+    if (!fg) return;
+
+    const camera = fg.camera();
+    const renderer = fg.renderer();
+    const mouse = mouseRef.current;
+    const raycaster = raycasterRef.current;
+    const intersectedNode = intersectedNodeRef.current;
+
+    // Calculate mouse position in normalized device coordinates (-1 to +1)
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // Update the picking ray with the camera and mouse position
+    raycaster.setFromCamera(mouse, camera);
+
+    // Calculate the intersection point with the sphere
+    const sphereIntersections = raycaster.intersectObject(
+      new THREE.Mesh(
+        new THREE.SphereGeometry(radius, 32, 32),
+        new THREE.MeshBasicMaterial({ visible: false })
+      )
+    );
+
+    if (sphereIntersections.length > 0) {
+      const point = sphereIntersections[0].point;
+      // Update node position
+      intersectedNode.x = point.x;
+      intersectedNode.y = point.y;
+      intersectedNode.z = point.z;
+
+      // Update the graph
+      fg.refresh();
+    }
+  };
+
+  const onMouseDown = (event) => {
+    const fg = fgRef.current;
+    if (!fg) return;
+
+    const camera = fg.camera();
+    const renderer = fg.renderer();
+    const controls = fg.controls();
+    const mouse = mouseRef.current;
+    const raycaster = raycasterRef.current;
+
+    // Calculate mouse position in normalized device coordinates (-1 to +1)
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    // Update the picking ray with the camera and mouse position
+    raycaster.setFromCamera(mouse, camera);
+
+    // Get the node objects
+    if (!fg.graphData || !fg.graphData.nodes) return;
+
+    const nodeObjects = fg.graphData.nodes
+      .map((node) => node.__threeObj)
+      .filter(Boolean);
+
+    // Calculate objects intersecting the picking ray
+    const intersects = raycaster.intersectObjects(nodeObjects, true);
+
+    if (intersects.length > 0) {
+      // Start dragging
+      isDraggingRef.current = true;
+      controls.enabled = false; // Disable orbit controls during dragging
+      intersectedNodeRef.current = intersects[0].object.userData.node;
+      setDraggedNode(intersectedNodeRef.current);
+
+      // Prevent default behavior
+      event.preventDefault();
+    }
+  };
+
+  const onMouseUp = () => {
+    if (isDraggingRef.current) {
+      const fg = fgRef.current;
+      if (!fg) return;
+
+      const controls = fg.controls();
+
+      isDraggingRef.current = false;
+      controls.enabled = true; // Re-enable orbit controls
+      intersectedNodeRef.current = null;
+      setDraggedNode(null);
+    }
+  };
+
+  // Add event listeners
+  useEffect(() => {
+    if (!fgRef.current) return;
+
+    const renderer = fgRef.current.renderer();
+
+    renderer.domElement.addEventListener('mousemove', onMouseMove);
+    renderer.domElement.addEventListener('mousedown', onMouseDown);
+    renderer.domElement.addEventListener('mouseup', onMouseUp);
+
+    // Clean up on unmount
+    return () => {
+      renderer.domElement.removeEventListener('mousemove', onMouseMove);
+      renderer.domElement.removeEventListener('mousedown', onMouseDown);
+      renderer.domElement.removeEventListener('mouseup', onMouseUp);
+    };
+  }, []);
+
+  // Node appearance
   const nodeThreeObject = (node) => {
     const material = new THREE.MeshPhongMaterial({ color: 0xffffff });
     const sphere = new THREE.Mesh(
@@ -83,53 +199,15 @@ const SkillTreeGraph = () => {
       material
     );
     // Store reference to node data
-    sphere.__data = node;
+    sphere.userData.node = node;
+    node.__threeObj = sphere; // Store reference back in node data
     return sphere;
   };
 
-  // Handle node clicks for activation (same as before)
+  // Handle node clicks for selection
   const handleNodeClick = (node, event) => {
-    // Prevent triggering node drag
-    if (event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) return;
-
-    if (activatedNodes.has(node.id)) {
-      // Deactivate node
-      setActivatedNodes((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(node.id);
-        return newSet;
-      });
-    } else {
-      // Check if all source nodes are activated
-      const incomingLinks = graphData.links.filter(
-        (link) => link.target === node.id
-      );
-      const allSourcesActivated = incomingLinks.every((link) =>
-        activatedNodes.has(link.source)
-      );
-
-      if (incomingLinks.length === 0 || allSourcesActivated) {
-        // Activate node
-        setActivatedNodes((prev) => new Set(prev).add(node.id));
-      } else {
-        // Display message indicating prerequisites are not met
-        alert('Activate prerequisite skills first.');
-      }
-    }
-  };
-
-  // Set node color based on activation state (same as before)
-  const getNodeColor = (node) => {
-    if (activatedNodes.has(node.id)) return 'green';
-
-    const incomingLinks = graphData.links.filter(
-      (link) => link.target === node.id
-    );
-    const allSourcesActivated = incomingLinks.every((link) =>
-      activatedNodes.has(link.source)
-    );
-
-    return allSourcesActivated ? 'yellow' : 'gray';
+    // Selection logic can be implemented here
+    console.log('Node clicked:', node);
   };
 
   return (
@@ -144,7 +222,7 @@ const SkillTreeGraph = () => {
         linkCurvature={0}
         enablePointerInteraction={true}
         onNodeClick={handleNodeClick}
-        nodeColor={getNodeColor}
+        nodeColor={() => 'white'}
         linkColor={() => 'rgba(255,255,255,0.5)'}
         nodeThreeObject={nodeThreeObject} // Pass nodeThreeObject as a prop
       />
@@ -162,12 +240,6 @@ const SkillTreeGraph = () => {
         }}
       >
         <h3>State Information</h3>
-        <p>
-          <strong>Activated Nodes:</strong>{' '}
-          {[...activatedNodes]
-            .map((id) => `Node ${id}`)
-            .join(', ') || 'None'}
-        </p>
         <p>
           <strong>Dragged Node:</strong>{' '}
           {draggedNode ? `Node ${draggedNode.id}` : 'None'}
