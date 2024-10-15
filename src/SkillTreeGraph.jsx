@@ -32,9 +32,16 @@ const getLinkColor = () => 'rgba(255,255,255,0.5)';
 
 const SkillTreeGraph = () => {
   const fgRef = useRef();
+  const containerRef = useRef();
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [draggedNode, setDraggedNode] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+
+  // logging function that prints out dimensions
+  const logDimensions = () => {
+    console.log("container dimensions: ", dimensions);
+  };
 
   // Sphere radius
   const radius = 100;
@@ -416,7 +423,7 @@ const SkillTreeGraph = () => {
       const controls = fgRef.current.controls();
   
       const startTime = performance.now();
-      const duration = 3000; // Duration in milliseconds
+      const duration = 2000; // Duration in milliseconds
   
       const startPosition = camera.position.clone();
       const endPosition = new THREE.Vector3(
@@ -466,11 +473,38 @@ const SkillTreeGraph = () => {
     }
   };
   
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current) {
+        // console.log("initializing canvas dimensions...");
+        setDimensions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight,
+        });
+      }
+    };
+  
+    window.addEventListener('resize', handleResize);
+  
+    // Call handleResize once to set the initial dimensions
+    handleResize();
+  
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
+  
+
   return (
-    <div className="w-100 h-100 overflow-none">
+    <div
+      ref={containerRef}
+      className="w-100 vh-100 overflow-none"
+    >
       {/* Render the 3D force graph */}
       <ForceGraph3D
         ref={fgRef}
+        width={dimensions.width}
+        height={dimensions.height}
         graphData={graphData}
         enableNodeDrag={false} // Disable built-in node dragging
         nodeAutoColorBy={null}
@@ -496,6 +530,7 @@ const SkillTreeGraph = () => {
             'None'}
         </p>
         <button onClick={resetCameraPosition}>Reset Camera</button>
+        <button onClick={logDimensions}>Log</button>
         {/* <h3 className="ma0">Camera State</h3>
         <p className="ma0">
           <strong>Position:</strong> X: {cameraState.position.x}, Y:{' '}
