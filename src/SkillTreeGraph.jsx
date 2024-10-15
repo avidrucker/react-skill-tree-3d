@@ -71,7 +71,7 @@ const SkillTreeGraph = () => {
     const sphereMaterial = new THREE.MeshStandardMaterial({
       color: 0x000000,
       transparent: true,
-      opacity: 0.2,
+      opacity: 0.05,
     });
     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
 
