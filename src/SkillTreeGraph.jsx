@@ -415,30 +415,57 @@ const SkillTreeGraph = () => {
       const camera = fgRef.current.camera();
       const controls = fgRef.current.controls();
   
-      // Reset camera position
-      camera.position.set(
+      const startTime = performance.now();
+      const duration = 3000; // Duration in milliseconds
+  
+      const startPosition = camera.position.clone();
+      const endPosition = new THREE.Vector3(
         initialCameraPositionRef.current.x,
         initialCameraPositionRef.current.y,
         initialCameraPositionRef.current.z
       );
   
-      // Reset camera rotation
-      camera.quaternion.set(0, 0, 0, 1); // Identity quaternion
-      camera.rotation.set(0, 0, 0);
+      const startQuaternion = camera.quaternion.clone();
+      const endQuaternion = new THREE.Quaternion(); // Identity quaternion (no rotation)
   
-      // Reset camera up vector
-      camera.up.set(0, 1, 0);
+      const startTarget = controls.target.clone();
+      const endTarget = new THREE.Vector3(0, 0, 0);
   
-      // Reset controls target
-      controls.target.set(0, 0, 0);
+      // Easing function for smooth animation
+      const easeInOutQuad = (t) => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
   
-      // Update camera and controls
-      camera.updateProjectionMatrix();
-      controls.update();
+      const animate = (currentTime) => {
+        const elapsedTime = currentTime - startTime;
+        const t = Math.min(elapsedTime / duration, 1); // Clamp t between 0 and 1
+  
+        const tEased = easeInOutQuad(t);
+  
+        // Interpolate position
+        camera.position.lerpVectors(startPosition, endPosition, tEased);
+  
+        // Interpolate rotation using slerpQuaternions
+        camera.quaternion.slerpQuaternions(startQuaternion, endQuaternion, tEased);
+  
+        // Interpolate controls target
+        controls.target.lerpVectors(startTarget, endTarget, tEased);
+  
+        // Ensure the camera's up vector is correct
+        camera.up.set(0, 1, 0);
+  
+        // Update camera and controls
+        camera.updateProjectionMatrix();
+        controls.update();
+  
+        // Continue animation if not finished
+        if (t < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+  
+      requestAnimationFrame(animate);
     }
   };
   
-
   return (
     <div className="w-100 h-100 overflow-none">
       {/* Render the 3D force graph */}
