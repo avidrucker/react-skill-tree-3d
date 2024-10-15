@@ -57,6 +57,65 @@ const SkillTreeGraph = () => {
   // Store initial camera position
   const initialCameraPositionRef = useRef(null);
 
+  const nodeIdRef = useRef(0);
+
+  const justAddedNode = useRef(false);
+
+  const addNode = () => {
+    // Place the new node in the center of the sphere
+    const phi = 0; // latitude angle
+    const theta = 0; // longitude angle
+  
+    // Convert spherical coordinates to Cartesian coordinates
+    const x = radius2 * Math.sin(phi) * Math.cos(theta);
+    const y = radius2 * Math.sin(phi) * Math.sin(theta);
+    const z = radius2 * Math.cos(phi);
+  
+    const newNode = {
+      id: nodeIdRef.current++,
+      x,
+      y,
+      z,
+    };
+  
+    justAddedNode.current = true;
+    setGraphData((prevData) => ({
+      nodes: [...prevData.nodes, newNode],
+      links: [...prevData.links],
+    }));
+  };
+
+  const deleteSelectedNodes = () => {
+    if (selectedNodes.size === 0) return;
+  
+    setGraphData((prevData) => {
+      const nodesToDelete = new Set([...selectedNodes].map((node) => node.id));
+      const newNodes = prevData.nodes.filter((node) => !nodesToDelete.has(node.id));
+      const newLinks = prevData.links.filter(
+        (link) => !nodesToDelete.has(link.source) && !nodesToDelete.has(link.target)
+      );
+      return { nodes: newNodes, links: newLinks };
+    });
+  
+    // Clear selected nodes
+    setSelectedNodes(new Set());
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Delete' || event.keyCode === 46) {
+        deleteSelectedNodes();
+      }
+    };
+  
+    window.addEventListener('keydown', handleKeyDown);
+  
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [selectedNodes]);
+  
+
   useEffect(() => {
     // Number of nodes
     const N = 10; // Increased number for demonstration
@@ -86,9 +145,15 @@ const SkillTreeGraph = () => {
     });
 
     setGraphData({ nodes, links });
+
+    fgRef.current.controls().noPan = true; // pan is disabled here
   }, []);
 
   useEffect(() => {
+    if(justAddedNode.current) {
+      justAddedNode.current = false;
+      return;
+    }
     if (!fgRef.current) return;
 
     // Disable internal forces by setting them to null
@@ -146,6 +211,11 @@ const SkillTreeGraph = () => {
   const linkThreeObject = (link) => {
     const start = link.source;
     const end = link.target;
+
+    const startNode = graphData.nodes.find((n) => n.id === link.source);
+    const endNode = graphData.nodes.find((n) => n.id === link.target);
+
+    if (!startNode || !endNode) return null;
 
     const points = getGreatCirclePoints(start, end);
     const curve = new THREE.CatmullRomCurve3(points);
@@ -529,6 +599,7 @@ const SkillTreeGraph = () => {
           {[...selectedNodes].map((node) => `Node ${node.id}`).join(', ') ||
             'None'}
         </p>
+        <button onClick={addNode}>Add Node</button>
         <button onClick={resetCameraPosition}>Reset Camera</button>
         <button onClick={logDimensions}>Log</button>
         {/* <h3 className="ma0">Camera State</h3>
