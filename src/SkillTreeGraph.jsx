@@ -10,6 +10,11 @@ const SkillTreeGraph = () => {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [draggedNode, setDraggedNode] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
+  const [cameraState, setCameraState] = useState({
+    position: { x: 0, y: 0, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+    zoom: 1,
+  });
 
   // Sphere radius
   const radius = 100;
@@ -25,6 +30,9 @@ const SkillTreeGraph = () => {
   // Load the icon texture
   const textureLoader = new THREE.TextureLoader();
   const iconTexture = textureLoader.load(eyeIcon);
+
+  // Store initial camera position
+  const initialCameraPositionRef = useRef(null);
 
   useEffect(() => {
     // Number of nodes
@@ -72,9 +80,10 @@ const SkillTreeGraph = () => {
       color: 0x000000,
       transparent: true,
       opacity: 0.05,
+      depthWrite: false, // Prevent sphere from occluding nodes
     });
     const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-
+    sphere.renderOrder = -1; // Render sphere first
     fgRef.current.scene().add(sphere);
 
     // Add ambient light to the scene
@@ -82,7 +91,41 @@ const SkillTreeGraph = () => {
     fgRef.current.scene().add(light);
 
     // Adjust camera position to view the entire sphere
-    fgRef.current.cameraPosition({ x: 0, y: 0, z: radius * 3 });
+    const initialPosition = { x: 0, y: 0, z: radius * 3 };
+    fgRef.current.cameraPosition(initialPosition);
+
+    // Store initial camera position
+    if (!initialCameraPositionRef.current) {
+      initialCameraPositionRef.current = { ...initialPosition };
+    }
+
+    // Add controls change listener to update camera state
+    const controls = fgRef.current.controls();
+
+    const handleControlChange = () => {
+      const camera = fgRef.current.camera();
+      setCameraState({
+        position: {
+          x: camera.position.x.toFixed(2),
+          y: camera.position.y.toFixed(2),
+          z: camera.position.z.toFixed(2),
+        },
+        rotation: {
+          x: camera.rotation.x.toFixed(2),
+          y: camera.rotation.y.toFixed(2),
+          z: camera.rotation.z.toFixed(2),
+        },
+        zoom: camera.zoom.toFixed(2),
+      });
+      handleRenderFrame();
+    };
+
+    controls.addEventListener('change', handleControlChange);
+
+    // Clean up the event listener when the component unmounts
+    return () => {
+      controls.removeEventListener('change', handleControlChange);
+    };
   }, [graphData]);
 
   // Function to calculate great circle points
@@ -115,22 +158,29 @@ const SkillTreeGraph = () => {
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
 
     const tube = new THREE.Mesh(geometry, material);
+    tube.renderOrder = 0; // Render links after sphere, before nodes
     return tube;
   };
 
   // Node appearance
   const nodeThreeObject = (node) => {
+    // Create a group to hold the plane and the outline
+    const group = new THREE.Group();
+
     // Create a plane geometry for the icon
     const iconSize = 10;
     const geometry = new THREE.PlaneGeometry(iconSize, iconSize);
     const material = new THREE.MeshBasicMaterial({
       map: iconTexture,
       transparent: true,
+      side: THREE.DoubleSide, // Ensure both sides are rendered
     });
 
     const plane = new THREE.Mesh(geometry, material);
     plane.__data = node; // Store reference to node data
-    node.__threeObj = plane;
+
+    group.add(plane);
+    node.__threeObj = group; // Store the group as the node's object
 
     // If the node is selected, add an outline
     if (selectedNodes.has(node)) {
@@ -144,19 +194,50 @@ const SkillTreeGraph = () => {
         side: THREE.DoubleSide,
       });
       const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
-      outline.rotation.x = Math.PI / 2; // Adjust rotation to face camera
 
-      plane.add(outline);
+      group.add(outline);
+      node.__outline = outline; // Store outline for later access
     }
 
-    return plane;
+    group.renderOrder = 1; // Render nodes after sphere and links
+
+    return group;
   };
 
   // Update node objects when selectedNodes changes
   useEffect(() => {
-    // Refresh all nodes to update the selection outline
+    // Update selection outlines
+    graphData.nodes.forEach((node) => {
+      if (node.__threeObj) {
+        const group = node.__threeObj;
+        // Remove existing outline if any
+        if (node.__outline) {
+          group.remove(node.__outline);
+          node.__outline = null;
+        }
+
+        // If the node is selected, add an outline
+        if (selectedNodes.has(node)) {
+          const iconSize = 10; // Should be the same as in nodeThreeObject
+          const outlineGeometry = new THREE.RingGeometry(
+            iconSize / 2 + 1,
+            iconSize / 2 + 3,
+            32
+          );
+          const outlineMaterial = new THREE.MeshBasicMaterial({
+            color: 'yellow',
+            side: THREE.DoubleSide,
+          });
+          const outline = new THREE.Mesh(outlineGeometry, outlineMaterial);
+
+          node.__threeObj.add(outline);
+          node.__outline = outline;
+        }
+      }
+    });
+
     fgRef.current.refresh();
-  }, [selectedNodes]);
+  }, [selectedNodes, graphData.nodes]);
 
   // Custom node dragging and click logic using pointer events
   useEffect(() => {
@@ -315,8 +396,41 @@ const SkillTreeGraph = () => {
     };
   }, [graphData.nodes]);
 
+  // Handle rendering frame to update node orientations
+  const handleRenderFrame = () => {
+    if (!fgRef.current) return;
+
+    // Update nodes to face away from the sphere's center
+    graphData.nodes.forEach((node) => {
+      if (node.__threeObj) {
+        // Compute the vector from the sphere center to the node
+        const nodePosition = new THREE.Vector3(node.x, node.y, node.z).normalize();
+
+        // Create a quaternion that rotates the node's positive Z-axis to align with the nodePosition vector
+        const quaternion = new THREE.Quaternion().setFromUnitVectors(
+          new THREE.Vector3(0, 0, 1), // The default orientation of the plane's normal (positive Z-axis)
+          nodePosition
+        );
+
+        // Apply the rotation to the node
+        node.__threeObj.setRotationFromQuaternion(quaternion);
+      }
+    });
+  };
+
+  // Function to reset camera position
+  const resetCameraPosition = () => {
+    if (fgRef.current && initialCameraPositionRef.current) {
+      fgRef.current.cameraPosition(
+        initialCameraPositionRef.current,
+        null,
+        3000 // ms transition duration
+      );
+    }
+  };
+
   return (
-    <div>
+    <div className="w-100 h-100 overflow-none">
       {/* Render the 3D force graph */}
       <ForceGraph3D
         ref={fgRef}
@@ -324,6 +438,7 @@ const SkillTreeGraph = () => {
         enableNodeDrag={false} // Disable built-in node dragging
         nodeAutoColorBy={null}
         linkDirectionalParticles={0}
+        nodeBillboard={false}
         linkCurvature={0}
         enablePointerInteraction={true}
         // Removed onNodeClick and onBackgroundClick handlers
@@ -331,19 +446,33 @@ const SkillTreeGraph = () => {
         nodeThreeObject={nodeThreeObject}
         linkThreeObject={linkThreeObject} // Add custom link object
         linkPositionUpdate={() => {}} // Prevent force-graph from updating link positions
+        onRenderFramePost={handleRenderFrame}
       />
 
       {/* UI Elements to display state */}
-      <div className="absolute top-0 right-0 bg-white-10 pa2 br3">
+      <div className="absolute top-2 right-2 bg-white-10 pa2 br3">
         <h3 className="ma0">State Information</h3>
-        <p>
+        <p className="ma0">
           <strong>Dragged Node:</strong>{' '}
           {draggedNode ? `Node ${draggedNode.id}` : 'None'}
         </p>
-        <p>
+        <p className="ma0">
           <strong>Selected Nodes:</strong>{' '}
           {[...selectedNodes].map((node) => `Node ${node.id}`).join(', ') ||
             'None'}
+        </p>
+        <button onClick={resetCameraPosition}>Reset Camera</button>
+        <h3 className="ma0">Camera State</h3>
+        <p className="ma0">
+          <strong>Position:</strong> X: {cameraState.position.x}, Y:{' '}
+          {cameraState.position.y}, Z: {cameraState.position.z}
+        </p>
+        <p className="ma0">
+          <strong>Rotation:</strong> X: {cameraState.rotation.x}, Y:{' '}
+          {cameraState.rotation.y}, Z: {cameraState.rotation.z}
+        </p>
+        <p className="ma0">
+          <strong>Zoom:</strong> {cameraState.zoom}
         </p>
       </div>
     </div>
