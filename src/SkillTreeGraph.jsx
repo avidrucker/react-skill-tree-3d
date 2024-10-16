@@ -68,8 +68,6 @@ const SkillTreeGraph = () => {
   // Store initial camera position
   const initialCameraPositionRef = useRef(null);
 
-  const nodeIdRef = useRef(0);
-
   const justAddedNode = useRef(false);
 
   // Modify the addNode function
@@ -253,11 +251,42 @@ const SkillTreeGraph = () => {
       const tube = new THREE.Mesh(geometry, linkMaterial);
       tube.renderOrder = 0; // Render links after sphere, before nodes
   
+      // Store a reference to the mesh object in the link data
+      link.__lineObj = tube;
+
       return tube;
     },
     [graphData.nodes] // Include graphData.nodes in dependencies
   );
   
+  // Function to update connected links when a node moves
+  const updateConnectedLinks = (node) => {
+    // Find all links connected to this node
+    const connectedLinks = graphData.links.filter(
+      (link) => link.source === node.id || link.target === node.id
+    );
+
+    connectedLinks.forEach((link) => {
+      const startNode = graphData.nodes.find((n) => n.id === link.source);
+      const endNode = graphData.nodes.find((n) => n.id === link.target);
+
+      if (!startNode || !endNode) return;
+
+      // Recalculate the curve points
+      const points = getGreatCirclePoints(startNode, endNode);
+      const curve = new THREE.CatmullRomCurve3(points);
+
+      // Create new geometry
+      const newGeometry = new THREE.TubeGeometry(curve, 32, 0.5, 8, false);
+
+      // Dispose of the old geometry
+      if (link.__lineObj) {
+        link.__lineObj.geometry.dispose();
+        // Assign new geometry
+        link.__lineObj.geometry = newGeometry;
+      }
+    });
+  };
 
   // Node appearance
   const nodeThreeObject = (node) => {
@@ -416,6 +445,10 @@ const SkillTreeGraph = () => {
           
             // Mark the node's object for update
             intersectedNode.__threeObj.position.set(point.x, point.y, point.z);
+            
+            // Update connected links
+            updateConnectedLinks(intersectedNode);
+            
             handleRenderFrame();
           }
 
@@ -483,7 +516,7 @@ const SkillTreeGraph = () => {
       renderer.domElement.removeEventListener('pointermove', handlePointerMove);
       renderer.domElement.removeEventListener('pointerup', handlePointerUp);
     };
-  }, [graphData.nodes]);
+  }, [graphData.nodes, graphData.links]);
 
   // Handle rendering frame to update node orientations
   const handleRenderFrame = () => {
