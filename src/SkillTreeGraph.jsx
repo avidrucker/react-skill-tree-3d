@@ -215,7 +215,7 @@ const SkillTreeGraph = () => {
   }, [graphData]);
 
   // Function to calculate great circle points
-  const getGreatCirclePoints = (start, end, numPoints = 100) => {
+  const getGreatCirclePoints = (start, end, numPoints = 100, startOffset = 0, endOffset = 0) => {
     const startVec = new THREE.Vector3(start.x, start.y, start.z).normalize();
     const endVec = new THREE.Vector3(end.x, end.y, end.z).normalize();
 
@@ -223,8 +223,10 @@ const SkillTreeGraph = () => {
     const axis = new THREE.Vector3().crossVectors(startVec, endVec).normalize();
 
     const points = [];
-    for (let i = 0; i <= numPoints; i++) {
-      const t = i / numPoints;
+    const adjustedNumPoints = numPoints - startOffset - endOffset;
+
+    for (let i = 0; i <= adjustedNumPoints; i++) {
+      const t = (i + startOffset) / numPoints;
       const quat = new THREE.Quaternion().setFromAxisAngle(axis, angle * t);
       const point = startVec.clone().applyQuaternion(quat).multiplyScalar(radius2);
       points.push(point);
@@ -235,28 +237,42 @@ const SkillTreeGraph = () => {
   // Custom link object
   const linkThreeObject = useCallback(
     (link) => {
-      // Retrieve the start and end node objects
       const startNode = graphData.nodes.find((n) => n.id === link.source);
       const endNode = graphData.nodes.find((n) => n.id === link.target);
-  
-      // Ensure both nodes exist
+
       if (!startNode || !endNode) return null;
-  
-      // Calculate the great circle points between the nodes
-      const points = getGreatCirclePoints(startNode, endNode);
+
+      // Calculate the angular offset based on the icon size
+      const iconRadius = iconSize / 2; // Half the size of the icon
+      const angularOffset = iconRadius / radius2; // Small angle in radians
+
+      // Calculate total angle between nodes
+      const totalAngle = new THREE.Vector3(startNode.x, startNode.y, startNode.z)
+        .angleTo(new THREE.Vector3(endNode.x, endNode.y, endNode.z));
+
+      // Convert angular offset to number of points
+      const numPoints = 100; // Total number of points along the curve
+      const startOffset = Math.round((angularOffset / totalAngle) * numPoints);
+      const endOffset = Math.round((angularOffset / totalAngle) * numPoints);
+
+      const points = getGreatCirclePoints(
+        startNode,
+        endNode,
+        numPoints,
+        startOffset,
+        endOffset
+      );
       const curve = new THREE.CatmullRomCurve3(points);
-  
-      // Create the tube geometry for the link
+
       const geometry = new THREE.TubeGeometry(curve, 32, 0.1, 8, false);
       const tube = new THREE.Mesh(geometry, linkMaterial);
-      tube.renderOrder = 0; // Render links after sphere, before nodes
-  
-      // Store a reference to the mesh object in the link data
+      tube.renderOrder = 0; // Links render first
+
       link.__lineObj = tube;
 
       return tube;
     },
-    [graphData.nodes] // Include graphData.nodes in dependencies
+    [graphData.nodes]
   );
   
   // Function to update connected links when a node moves
@@ -265,20 +281,39 @@ const SkillTreeGraph = () => {
     const connectedLinks = graphData.links.filter(
       (link) => link.source === node.id || link.target === node.id
     );
-
+  
     connectedLinks.forEach((link) => {
       const startNode = graphData.nodes.find((n) => n.id === link.source);
       const endNode = graphData.nodes.find((n) => n.id === link.target);
-
+  
       if (!startNode || !endNode) return;
-
-      // Recalculate the curve points
-      const points = getGreatCirclePoints(startNode, endNode);
+  
+      // Calculate the angular offset based on the icon size
+      const iconRadius = iconSize / 2; // Half the size of the icon
+      const angularOffset = iconRadius / radius2; // Small angle in radians
+  
+      // Calculate total angle between nodes
+      const totalAngle = new THREE.Vector3(startNode.x, startNode.y, startNode.z)
+        .angleTo(new THREE.Vector3(endNode.x, endNode.y, endNode.z));
+  
+      // Convert angular offset to number of points
+      const numPoints = 100; // Total number of points along the curve
+      const startOffset = Math.round((angularOffset / totalAngle) * numPoints);
+      const endOffset = Math.round((angularOffset / totalAngle) * numPoints);
+  
+      // Recalculate the curve points with offsets
+      const points = getGreatCirclePoints(
+        startNode,
+        endNode,
+        numPoints,
+        startOffset,
+        endOffset
+      );
       const curve = new THREE.CatmullRomCurve3(points);
-
+  
       // Create new geometry
       const newGeometry = new THREE.TubeGeometry(curve, 32, 0.1, 8, false);
-
+  
       // Dispose of the old geometry
       if (link.__lineObj) {
         link.__lineObj.geometry.dispose();
@@ -287,6 +322,7 @@ const SkillTreeGraph = () => {
       }
     });
   };
+  
 
   // Node appearance
   const nodeThreeObject = (node) => {
