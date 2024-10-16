@@ -26,7 +26,7 @@ const outlineMaterial = new THREE.MeshBasicMaterial({
 });
 
 // Reusable link material
-const linkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+const linkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
 
 const getLinkColor = () => 'rgba(255,255,255,0.5)';
 
@@ -235,24 +235,29 @@ const SkillTreeGraph = () => {
   };
 
   // Custom link object
-  const linkThreeObject = (link) => {
-    const start = link.source;
-    const end = link.target;
-
-    const startNode = graphData.nodes.find((n) => n.id === link.source);
-    const endNode = graphData.nodes.find((n) => n.id === link.target);
-
-    if (!startNode || !endNode) return null;
-
-    const points = getGreatCirclePoints(start, end);
-    const curve = new THREE.CatmullRomCurve3(points);
-
-    const geometry = new THREE.TubeGeometry(curve, 32, 0.5, 8, false);
-
-    const tube = new THREE.Mesh(geometry, linkMaterial);
-    tube.renderOrder = 0; // Render links after sphere, before nodes
-    return tube;
-  };
+  const linkThreeObject = useCallback(
+    (link) => {
+      // Retrieve the start and end node objects
+      const startNode = graphData.nodes.find((n) => n.id === link.source);
+      const endNode = graphData.nodes.find((n) => n.id === link.target);
+  
+      // Ensure both nodes exist
+      if (!startNode || !endNode) return null;
+  
+      // Calculate the great circle points between the nodes
+      const points = getGreatCirclePoints(startNode, endNode);
+      const curve = new THREE.CatmullRomCurve3(points);
+  
+      // Create the tube geometry for the link
+      const geometry = new THREE.TubeGeometry(curve, 32, 0.5, 8, false);
+      const tube = new THREE.Mesh(geometry, linkMaterial);
+      tube.renderOrder = 0; // Render links after sphere, before nodes
+  
+      return tube;
+    },
+    [graphData.nodes] // Include graphData.nodes in dependencies
+  );
+  
 
   // Node appearance
   const nodeThreeObject = (node) => {
@@ -292,7 +297,7 @@ const SkillTreeGraph = () => {
   
   const memoizedLinkThreeObject = useCallback(
     (link) => linkThreeObject(link),
-    []
+    [linkThreeObject]
   );
 
   // Update node objects when selectedNodes changes
@@ -612,6 +617,7 @@ const SkillTreeGraph = () => {
         nodeThreeObject={memoizedNodeThreeObject}
         linkThreeObject={memoizedLinkThreeObject} // Add custom link object
         linkPositionUpdate={getLinkColor} // Prevent force-graph from updating link positions
+        showNavInfo={false}
       />
 
       {/* UI Elements to display state */}
