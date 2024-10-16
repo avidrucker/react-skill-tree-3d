@@ -247,7 +247,7 @@ const SkillTreeGraph = () => {
       const curve = new THREE.CatmullRomCurve3(points);
   
       // Create the tube geometry for the link
-      const geometry = new THREE.TubeGeometry(curve, 32, 0.5, 8, false);
+      const geometry = new THREE.TubeGeometry(curve, 32, 0.1, 8, false);
       const tube = new THREE.Mesh(geometry, linkMaterial);
       tube.renderOrder = 0; // Render links after sphere, before nodes
   
@@ -277,7 +277,7 @@ const SkillTreeGraph = () => {
       const curve = new THREE.CatmullRomCurve3(points);
 
       // Create new geometry
-      const newGeometry = new THREE.TubeGeometry(curve, 32, 0.5, 8, false);
+      const newGeometry = new THREE.TubeGeometry(curve, 32, 0.1, 8, false);
 
       // Dispose of the old geometry
       if (link.__lineObj) {
