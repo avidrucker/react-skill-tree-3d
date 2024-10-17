@@ -25,9 +25,6 @@ const outlineMaterial = new THREE.MeshBasicMaterial({
   side: THREE.DoubleSide,
 });
 
-// Reusable link material
-const linkMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-
 const getLinkColor = () => 'rgba(255,255,255,0.5)';
 
 const SkillTreeGraph = () => {
@@ -37,6 +34,7 @@ const SkillTreeGraph = () => {
   const [draggedNode, setDraggedNode] = useState(null);
   const [selectedNodes, setSelectedNodes] = useState(new Set());
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [selectedLinks, setSelectedLinks] = useState(new Set());
 
   // logging function that prints out dimensions
   const logDimensions = () => {
@@ -106,30 +104,42 @@ const SkillTreeGraph = () => {
     }));
   };
 
-  const deleteSelectedNodes = () => {
-    if (selectedNodes.size === 0) return;
+  const deleteSelected = () => {
+    if (selectedNodes.size === 0 && selectedLinks.size === 0) return;
   
     justAddedNode.current = true;
     setGraphData((prevData) => {
       const nodesToDelete = new Set([...selectedNodes].map((node) => node.id));
+      const linksToDelete = new Set(selectedLinks);
+  
       const newNodes = prevData.nodes.filter((node) => !nodesToDelete.has(node.id));
       const newLinks = prevData.links.filter(
-        (link) => !nodesToDelete.has(link.source) && !nodesToDelete.has(link.target)
+        (link) =>
+          !nodesToDelete.has(link.source) &&
+          !nodesToDelete.has(link.target) &&
+          !linksToDelete.has(link)
       );
-      // console.log("old nodes: ", prevData.nodes);
-      // console.log('Deleted nodes:', nodesToDelete);
-      // console.log("resulting remaining nodes: ", newNodes);
+  
+      // Dispose of link objects to prevent memory leaks
+      linksToDelete.forEach((link) => {
+        if (link.__lineObj) {
+          link.__lineObj.geometry.dispose();
+          link.__lineObj.material.dispose();
+        }
+      });
+  
       return { nodes: newNodes, links: newLinks };
     });
   
-    // Clear selected nodes
+    // Clear selected nodes and links
     setSelectedNodes(new Set());
+    setSelectedLinks(new Set());
   };
-
+  
   useEffect(() => {
     const handleKeyDown = (event) => {
       if (event.key === 'Delete' || event.keyCode === 46) {
-        deleteSelectedNodes();
+        deleteSelected();
       }
     };
   
@@ -138,7 +148,34 @@ const SkillTreeGraph = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [selectedNodes]);
+  }, [selectedNodes, selectedLinks]);
+  
+  const connectNodes = () => {
+    if (selectedNodes.size !== 2) return;
+  
+    const selectedNodesArray = Array.from(selectedNodes);
+    const sourceNode = selectedNodesArray[0];
+    const targetNode = selectedNodesArray[1];
+  
+    // Check if the link already exists
+    const linkExists = graphData.links.some(
+      (link) => link.source === sourceNode.id && link.target === targetNode.id
+    );
+  
+    if (linkExists) return;
+  
+    // prevent camera reset
+    justAddedNode.current = true;
+
+    // Add the new link
+    setGraphData((prevData) => ({
+      nodes: prevData.nodes,
+      links: [...prevData.links, { source: sourceNode.id, target: targetNode.id }],
+    }));
+  
+    // Clear selected nodes
+    setSelectedNodes(new Set());
+  };
   
 
   useEffect(() => {
@@ -239,22 +276,22 @@ const SkillTreeGraph = () => {
     (link) => {
       const startNode = graphData.nodes.find((n) => n.id === link.source);
       const endNode = graphData.nodes.find((n) => n.id === link.target);
-
+  
       if (!startNode || !endNode) return null;
-
+  
       // Calculate the angular offset based on the icon size
       const iconRadius = iconSize / 2; // Half the size of the icon
       const angularOffset = iconRadius / radius2; // Small angle in radians
-
+  
       // Calculate total angle between nodes
       const totalAngle = new THREE.Vector3(startNode.x, startNode.y, startNode.z)
         .angleTo(new THREE.Vector3(endNode.x, endNode.y, endNode.z));
-
+  
       // Convert angular offset to number of points
       const numPoints = 100; // Total number of points along the curve
       const startOffset = Math.round((angularOffset / totalAngle) * numPoints);
       const endOffset = Math.round((angularOffset / totalAngle) * numPoints);
-
+  
       const points = getGreatCirclePoints(
         startNode,
         endNode,
@@ -263,17 +300,36 @@ const SkillTreeGraph = () => {
         endOffset
       );
       const curve = new THREE.CatmullRomCurve3(points);
-
+  
       const geometry = new THREE.TubeGeometry(curve, 32, 0.1, 8, false);
-      const tube = new THREE.Mesh(geometry, linkMaterial);
+  
+      // Assign a new material to each link
+      const material = new THREE.MeshBasicMaterial({
+        color: selectedLinks.has(link) ? 'yellow' : 'white',
+        side: THREE.DoubleSide,
+        depthTest: true,
+        depthWrite: true,
+      });
+  
+      const tube = new THREE.Mesh(geometry, material);
       tube.renderOrder = 0; // Links render first
-
+  
       link.__lineObj = tube;
-
+      tube.__data = link; // Store reference to link data
+  
       return tube;
     },
-    [graphData.nodes]
+    [graphData.nodes, selectedLinks]
   );
+
+  useEffect(() => {
+    // Update link colors when selection changes
+    graphData.links.forEach((link) => {
+      if (link.__lineObj) {
+        link.__lineObj.material.color.set(selectedLinks.has(link) ? 'yellow' : 'white');
+      }
+    });
+  }, [selectedLinks, graphData.links]);
   
   // Function to update connected links when a node moves
   const updateConnectedLinks = (node) => {
@@ -413,38 +469,82 @@ const SkillTreeGraph = () => {
       const rect = renderer.domElement.getBoundingClientRect();
       mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
+    
       // Store initial pointer position
       initialPointerPosRef.current = { x: event.clientX, y: event.clientY };
       isDraggingRef.current = false;
-
+    
       // Raycast
       raycaster.setFromCamera(mouse, camera);
-
-      // Get nodes
+    
+      // Get nodes and links
       const nodeObjects = graphData.nodes
         .map((node) => node.__threeObj)
         .filter(Boolean);
-
-      const intersects = raycaster.intersectObjects(nodeObjects, true);
-
-      if (intersects.length > 0) {
+      const linkObjects = graphData.links
+        .map((link) => link.__lineObj)
+        .filter(Boolean);
+    
+      // Check for node intersections
+      const intersectsNodes = raycaster.intersectObjects(nodeObjects, true);
+      if (intersectsNodes.length > 0) {
         // Node clicked
-        const intersectedNode = intersects[0].object.__data;
+        const intersectedNode = intersectsNodes[0].object.__data;
         intersectedNodeRef.current = intersectedNode;
-
+    
         // Disable controls to prevent scene rotation
         controls.enabled = false;
-
+    
         // Prevent default behavior
         event.preventDefault();
         event.stopPropagation();
       } else {
-        // No node clicked
         intersectedNodeRef.current = null;
-        controls.enabled = true; // Enable controls for scene rotation
+    
+        // Check for link intersections
+        const intersectsLinks = raycaster.intersectObjects(linkObjects, true);
+        if (intersectsLinks.length > 0) {
+          // Link clicked
+          const intersectedLink = intersectsLinks[0].object.__data;
+          intersectedNodeRef.current = null; // Ensure no node is selected
+    
+          // Handle link selection
+          if (event.shiftKey) {
+            // Shift-click: toggle selection of the link
+            setSelectedLinks((prev) => {
+              const newSelectedLinks = new Set(prev);
+              if (newSelectedLinks.has(intersectedLink)) {
+                newSelectedLinks.delete(intersectedLink);
+              } else {
+                newSelectedLinks.add(intersectedLink);
+              }
+              return newSelectedLinks;
+            });
+          } else {
+            // Normal click: select only this link
+            setSelectedLinks(new Set([intersectedLink]));
+            setSelectedNodes(new Set()); // Deselect nodes
+          }
+    
+          controls.enabled = true; // Enable controls for scene rotation
+    
+          // Prevent default behavior
+          event.preventDefault();
+          event.stopPropagation();
+        } else {
+          // Clicked on background
+          intersectedNodeRef.current = null;
+          controls.enabled = true; // Enable controls
+    
+          // Deselect all if not shift-clicking
+          if (!event.shiftKey) {
+            setSelectedNodes(new Set());
+            setSelectedLinks(new Set());
+          }
+        }
       }
     };
+    
 
     const handlePointerMove = (event) => {
       const intersectedNode = intersectedNodeRef.current;
@@ -523,6 +623,7 @@ const SkillTreeGraph = () => {
         } else {
           // Normal click: select only this node
           setSelectedNodes(new Set([node]));
+          setSelectedLinks(new Set()); // Deselect links ////
           // console.log('Node clicked:', node.id);
         }
       } else {
@@ -701,12 +802,42 @@ const SkillTreeGraph = () => {
           {[...selectedNodes].map((node) => `Node ${node.id}`).join(', ') ||
             'None'}
         </p>
-      <div className="">
-        <button className="dib" onClick={addNode}>Add Node</button>
-        <button className="dib" onClick={resetCameraPosition}>Reset Camera</button>
-        <button className="dib" onClick={logManyThings}>Log</button>
+        <p className="ma0">
+          <strong>Selected Links:</strong>{' '}
+          {[...selectedLinks].map(
+            (link) => `Link ${link.source} - ${link.target}`
+          ).join(', ') || 'None'}
+        </p>
+        <div className="">
+          <button className="dib" onClick={addNode}>Add Node</button>
+          {selectedNodes.size === 2 &&
+            (() => {
+              const selectedNodesArray = Array.from(selectedNodes);
+              const sourceNode = selectedNodesArray[0];
+              const targetNode = selectedNodesArray[1];
+
+              // Check if link already exists
+              const linkExists = graphData.links.some(
+                (link) => link.source === sourceNode.id && link.target === targetNode.id ||
+                link.source === targetNode.id && link.target === sourceNode.id
+              );
+
+              if (!linkExists) {
+                return (
+                  <button className="dib" onClick={connectNodes}>
+                    Connect Nodes
+                  </button>
+                );
+              } else {
+                return null;
+              }
+            })()
+          }
+          <button className="dib" onClick={resetCameraPosition}>Reset Camera</button>
+          <button className="dib" onClick={logManyThings}>Log</button>
         </div>
       </div>
+
     </div>
   );
 };
